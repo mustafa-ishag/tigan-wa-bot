@@ -21,6 +21,9 @@ COPY . .
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
+# Give permissions to the pptruser so whatsapp-web.js can create .wwebjs_auth
+RUN chown -R pptruser:pptruser /usr/src/app
+
 # Switch back to the unprivileged user provided by the image
 USER pptruser
 

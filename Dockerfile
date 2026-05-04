@@ -17,9 +17,8 @@ RUN npm install
 # Copy app source
 COPY . .
 
-# Set environment variable so puppeteer uses the installed Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+# Rely on the Puppeteer image's default Chromium installation
+# The image already configures the path correctly.
 
 # Give permissions to the pptruser so whatsapp-web.js can create .wwebjs_auth
 RUN chown -R pptruser:pptruser /usr/src/app

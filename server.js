@@ -27,6 +27,12 @@ const client = new Client({
 
 let isClientReady = false;
 
+// Event: Browser started and WhatsApp Web is loading
+client.on('loading_screen', (percent, message) => {
+    console.log(`\n⏳ جاري تحميل واتساب ويب... ${percent}%`);
+    console.log(`📝 رسالة النظام: ${message}`);
+});
+
 // Generate QR Code in Terminal for scanning
 client.on('qr', (qr) => {
     console.log('\n==================================================');
@@ -40,6 +46,10 @@ client.on('ready', () => {
     isClientReady = true;
     console.log('\n✅ اكتمل الربط! الواتساب جاهز الآن لاستقبال وإرسال الرسائل عبر الـ API الخاص بنا.');
     console.log(`🌐 يمكنك إرسال الطلبات إلى: http://localhost:${PORT}/send-message\n`);
+});
+
+client.on('authenticated', () => {
+    console.log('✅ تمت المصادقة بنجاح مع سيرفرات واتساب!');
 });
 
 // Event: Authentication failed

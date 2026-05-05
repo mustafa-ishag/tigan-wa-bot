@@ -57,33 +57,55 @@ client.on('auth_failure', msg => {
     console.error('❌ فشل في المصادقة مع الواتساب:', msg);
 });
 
+// API Endpoint to get all groups the bot is a part of
+app.get('/groups', async (req, res) => {
+    if (!isClientReady) {
+        return res.status(503).json({ success: false, message: 'خدمة الواتساب غير جاهزة.' });
+    }
+    try {
+        const chats = await client.getChats();
+        const groups = chats.filter(chat => chat.isGroup).map(group => ({
+            id: group.id._serialized,
+            name: group.name
+        }));
+        res.json({ success: true, groups });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'حدث خطأ.', error: error.toString() });
+    }
+});
+
 // API Endpoint to send messages
 app.post('/send-message', async (req, res) => {
     if (!isClientReady) {
         return res.status(503).json({ success: false, message: 'خدمة الواتساب قيد التشغيل أو لم يتم ربط الجوال بعد. يرجى مسح الباركود أولاً.' });
     }
 
-    const { number, message } = req.body;
+    const { number, message, isGroup } = req.body;
 
     if (!number || !message) {
         return res.status(400).json({ success: false, message: 'يرجى إرسال رقم الجوال والنص (number, message).' });
     }
 
     try {
-        // WhatsApp requires country code without '+' or '00', e.g., '9665xxxxxxxx@c.us'
-        let cleanNumber = number.replace(/[^0-9]/g, '');
-        
-        // If it starts with 05, replace with 9665
-        if (cleanNumber.startsWith('05')) {
-            cleanNumber = '966' + cleanNumber.substring(1);
-        }
+        let chatId = '';
 
-        const chatId = `${cleanNumber}@c.us`;
+        if (isGroup || number.endsWith('@g.us')) {
+            // It's a group
+            chatId = number.includes('@g.us') ? number : `${number}@g.us`;
+        } else {
+            // It's a personal number
+            let cleanNumber = number.replace(/[^0-9]/g, '');
+            // If it starts with 05, replace with 9665
+            if (cleanNumber.startsWith('05')) {
+                cleanNumber = '966' + cleanNumber.substring(1);
+            }
+            chatId = `${cleanNumber}@c.us`;
 
-        // Check if the number is registered on WhatsApp to prevent "Evaluation failed: t" error
-        const isRegistered = await client.isRegisteredUser(chatId);
-        if (!isRegistered) {
-            return res.status(404).json({ success: false, message: 'الرقم غير مسجل في واتساب أو صيغة الرقم غير صحيحة.' });
+            // Check if the number is registered on WhatsApp to prevent "Evaluation failed: t" error
+            const isRegistered = await client.isRegisteredUser(chatId);
+            if (!isRegistered) {
+                return res.status(404).json({ success: false, message: 'الرقم غير مسجل في واتساب أو صيغة الرقم غير صحيحة.' });
+            }
         }
 
         // Send the message

@@ -8,6 +8,19 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+// =============================================
+// ⚙️ إعدادات الرد التلقائي
+// =============================================
+
+// رابط PHP API لنظام تِقان (عبر نفق SSH: ssh -R 8080:localhost:80 root@92.113.31.147)
+const PHP_API_URL = process.env.PHP_API_URL || 'http://localhost:8080/etganplus';
+
+// مفتاح API للتحقق - يجب أن يتطابق مع الموجود في ملف PHP
+const API_KEY = process.env.API_KEY || 'tiqan_wa_bot_2026_secure_key';
+
+// تفعيل/تعطيل ميزة الرد التلقائي
+let autoReplyEnabled = true;
+
 // Initialize WhatsApp Client with LocalAuth so session is saved
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -45,7 +58,9 @@ client.on('qr', (qr) => {
 client.on('ready', () => {
     isClientReady = true;
     console.log('\n✅ اكتمل الربط! الواتساب جاهز الآن لاستقبال وإرسال الرسائل عبر الـ API الخاص بنا.');
-    console.log(`🌐 يمكنك إرسال الطلبات إلى: http://localhost:${PORT}/send-message\n`);
+    console.log(`🌐 يمكنك إرسال الطلبات إلى: http://localhost:${PORT}/send-message`);
+    console.log(`🤖 الرد التلقائي: ${autoReplyEnabled ? 'مفعّل ✅' : 'معطّل ❌'}`);
+    console.log(`🔗 PHP API URL: ${PHP_API_URL}\n`);
 });
 
 client.on('authenticated', () => {
@@ -55,6 +70,66 @@ client.on('authenticated', () => {
 // Event: Authentication failed
 client.on('auth_failure', msg => {
     console.error('❌ فشل في المصادقة مع الواتساب:', msg);
+});
+
+// =============================================
+// 💬 الرد التلقائي على استعلام أمر العمل
+// =============================================
+client.on('message', async (msg) => {
+    // تجاهل إذا كانت الميزة معطلة
+    if (!autoReplyEnabled) return;
+
+    // تجاهل الرسائل المرسلة من نفس الحساب
+    if (msg.fromMe) return;
+
+    // تجاهل رسائل المجموعات
+    const chat = await msg.getChat();
+    if (chat.isGroup) return;
+
+    const text = msg.body.trim();
+
+    // فحص إذا كان النص رقم أمر عمل (7 إلى 12 رقم)
+    const workOrderPattern = /^\d{7,12}$/;
+    if (!workOrderPattern.test(text)) return;
+
+    console.log(`\n📩 استعلام وارد من ${msg.from}: أمر عمل ${text}`);
+
+    try {
+        // إرسال رسالة "جاري البحث..."
+        await msg.reply('🔍 جاري البحث عن بيانات أمر العمل...');
+
+        // استدعاء PHP API
+        const apiUrl = `${PHP_API_URL}/api/whatsapp/material-analysis.php?wo=${encodeURIComponent(text)}&key=${encodeURIComponent(API_KEY)}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(15000)
+        });
+
+        if (!response.ok) {
+            console.error(`❌ PHP API Error (HTTP ${response.status})`);
+            await msg.reply('❌ حدث خطأ أثناء البحث. يرجى المحاولة لاحقاً.');
+            return;
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+            await msg.reply(data.formatted_message);
+            console.log(`✅ تم إرسال تحليل المواد لأمر العمل ${text} إلى ${msg.from}`);
+        } else {
+            await msg.reply(`❌ ${data.message || 'لم يتم العثور على أمر العمل'}\n\nتأكد من صحة رقم أمر العمل وحاول مرة أخرى.`);
+            console.log(`⚠️ أمر العمل ${text} غير موجود - استعلام من ${msg.from}`);
+        }
+    } catch (error) {
+        console.error('❌ خطأ في الرد التلقائي:', error.message);
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+            await msg.reply('⏰ انتهت مهلة الاتصال بالخادم. يرجى المحاولة لاحقاً.');
+        } else {
+            await msg.reply('❌ حدث خطأ أثناء جلب البيانات. يرجى المحاولة لاحقاً.');
+        }
+    }
 });
 
 // API Endpoint to get all groups the bot is a part of
@@ -117,10 +192,36 @@ app.post('/send-message', async (req, res) => {
     }
 });
 
+// =============================================
+// 🎛️ تحكم بالرد التلقائي
+// =============================================
+
+app.get('/status', (req, res) => {
+    res.json({ success: true, whatsapp_ready: isClientReady, auto_reply: autoReplyEnabled, php_api_url: PHP_API_URL });
+});
+
+app.post('/auto-reply/enable', (req, res) => {
+    autoReplyEnabled = true;
+    console.log('🤖 تم تفعيل الرد التلقائي');
+    res.json({ success: true, message: 'تم تفعيل الرد التلقائي', auto_reply: true });
+});
+
+app.post('/auto-reply/disable', (req, res) => {
+    autoReplyEnabled = false;
+    console.log('🤖 تم تعطيل الرد التلقائي');
+    res.json({ success: true, message: 'تم تعطيل الرد التلقائي', auto_reply: false });
+});
+
 // Start listening for Express server
 app.listen(PORT, () => {
     console.log(`🚀 خادم الـ API يعمل على المنفذ ${PORT}`);
     console.log('⏳ جاري تهيئة متصفح الواتساب في الخلفية... الرجاء الانتظار...');
+    console.log(`\n📋 الأوامر المتاحة:`);
+    console.log(`   GET  /status             - حالة الخادم`);
+    console.log(`   POST /send-message       - إرسال رسالة`);
+    console.log(`   GET  /groups             - قائمة المجموعات`);
+    console.log(`   POST /auto-reply/enable  - تفعيل الرد التلقائي`);
+    console.log(`   POST /auto-reply/disable - تعطيل الرد التلقائي\n`);
 });
 
 // Initialize the WhatsApp Client
